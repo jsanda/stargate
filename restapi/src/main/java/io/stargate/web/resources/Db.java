@@ -41,11 +41,11 @@ public class Db {
   private final DataStore dataStore;
   private final AuthenticationService authenticationService;
   private final AuthorizationService authorizationService;
-  private final LoadingCache<String, String> docsTokensToRoles =
+  private final LoadingCache<String, DataStore> docsTokensToRoles =
       Caffeine.newBuilder()
           .maximumSize(10_000)
           .expireAfterWrite(1, TimeUnit.MINUTES)
-          .build(token -> getRoleNameForToken(token));
+          .build(token -> getCachedStoreForToken(token));
 
   public Collection<Table> getTables(DataStore dataStore, String keyspaceName) {
     Keyspace keyspace = dataStore.schema().keyspace(keyspaceName);
@@ -110,8 +110,12 @@ public class Db {
     return getDataStoreInternal(storedCredentials.getRoleName(), pageSize, pagingState);
   }
 
-  private DataStore getDataStoreInternal(String role, int pageSize, ByteBuffer pagingState)
-      throws UnauthorizedException {
+  private DataStore getDataStoreInternal(String role) {
+    DataStoreOptions options = DataStoreOptions.builder().alwaysPrepareQueries(true).build();
+    return DataStore.create(this.persistence, role, options);
+  }
+
+  private DataStore getDataStoreInternal(String role, int pageSize, ByteBuffer pagingState) {
     Parameters parameters =
         Parameters.builder()
             .pageSize(pageSize)
@@ -123,31 +127,26 @@ public class Db {
     return DataStore.create(this.persistence, role, options);
   }
 
-  public String getRoleNameForToken(String token) throws UnauthorizedException {
+  public DataStore getCachedStoreForToken(String token) throws UnauthorizedException {
     StoredCredentials storedCredentials = authenticationService.validateToken(token);
-    return storedCredentials.getRoleName();
+    String role = storedCredentials.getRoleName();
+    return getDataStoreInternal(role);
   }
 
   public DocumentDB getDocDataStoreForToken(String token) throws UnauthorizedException {
-    return new DocumentDB(getDataStoreForToken(token), token, getAuthorizationService());
-  }
-
-  public DocumentDB getDocDataStoreForToken(String token, int pageSize, ByteBuffer pageState)
-      throws UnauthorizedException {
     if (token == null) {
       throw new UnauthorizedException("Missing token");
     }
-    String role;
+    DataStore store;
     try {
-      role = docsTokensToRoles.get(token);
+      store = docsTokensToRoles.get(token);
     } catch (CompletionException e) {
       if (e.getCause() instanceof UnauthorizedException) {
         throw (UnauthorizedException) e.getCause();
       }
       throw e;
     }
-    return new DocumentDB(
-        getDataStoreInternal(role, pageSize, pageState), token, getAuthorizationService());
+    return new DocumentDB(store, token, getAuthorizationService());
   }
 
   public boolean isDse() {
