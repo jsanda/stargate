@@ -281,7 +281,7 @@ public class DocumentResourceV2Test {
 
     PowerMockito.when(
             documentServiceMock.searchDocumentsV2(
-                anyObject(), anyString(), anyString(), anyList(), anyList(), anyString()))
+                anyObject(), anyString(), anyString(), anyList(), anyList(), anyString(), anyInt(), anyObject()))
         .thenReturn(ImmutablePair.of(mockedReturn, null));
 
     PowerMockito.when(documentServiceMock.convertToFilterOps(anyList(), anyObject()))
